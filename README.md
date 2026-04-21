@@ -140,7 +140,6 @@ Cost = w_risk × risk + w_traffic × traffic + w_surface × surface +
 - **DLS (Depth-Limited Search)**: DFS with depth limit to prevent infinite loops
 - **IDLS (Iterative Deepening with Limit)**: IDS variant with adjustable depth limit
 - **IDS (Iterative Deepening Search)**: Combines DFS efficiency with BFS completeness
-- **Bidirectional Search**: Searches from both source and destination simultaneously
 
 ### Informed Search
 - **Greedy Best-First**: Fast but not optimal, uses heuristic only
