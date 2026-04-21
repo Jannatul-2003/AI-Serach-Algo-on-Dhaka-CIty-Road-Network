@@ -1,0 +1,689 @@
+﻿\documentclass[a4paper, 12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,positioning,arrows.meta,calc}
+\usepackage[english]{babel}
+\usepackage[autostyle,english=american]{csquotes}
+\MakeOuterQuote{"}
+\usepackage{xcolor}
+\usepackage{subcaption}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\theoremstyle{remark}
+\newtheorem*{proof*}{Proof}
+\definecolor{darkblue}{rgb}{0.0,0.2,0.6}
+\hypersetup{colorlinks=true,linkcolor=darkblue,urlcolor=darkblue,citecolor=darkblue}
+\titleformat{\section}{\normalfont\Large\bfseries\color{darkblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalfont\large\bfseries\color{darkblue}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries\color{darkblue}}{\thesubsubsection}{1em}{}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small Dhaka Road Network Route Optimizer}
+\lhead{\small CSE4111: AI Lab}
+\cfoot{\thepage}
+\begin{document}
+\begin{titlepage}
+    \centering
+    \includegraphics[width=4cm]{logo.png}\\[0.5cm]
+    {\LARGE \textbf{University of Dhaka}}\\[0.3cm]
+    {\large \textbf{Department of Computer Science and Engineering}}\\[1.5cm]
+    {\large \textbf{CSE4111: Artificial Intelligence Lab}}\\[1cm]
+    \rule{\linewidth}{0.4mm}\\[0.3cm]
+    {\Large \textbf{Comparative Analysis of AI Search Algorithms\\[0.2cm]on Dhaka City Road Network}}\\[0.1cm]
+    \rule{\linewidth}{0.4mm}\\[1.5cm]
+    {\large \textbf{Submitted by:}}\\[0.3cm]
+    {\normalsize Jannatul Ferdousi (08)}\\[1.0cm]
+    {\large \textbf{Submitted To:}}\\[0.3cm]
+    Dr.\ Md.\ Mosaddek Khan, Associate Professor, Dept.\ of CSE, University of Dhaka\\[0.3cm]
+    Mr.\ Palash Roy, Lecturer, Dept.\ of CSE, University of Dhaka\\[2cm]
+    {\normalsize \textbf{Submission Date: \today}}
+\end{titlepage}
+\newpage
+\tableofcontents
+\newpage
+\section{Introduction}
+
+Urban route planning in a densely populated city such as Dhaka presents a multi-dimensional optimisation challenge. A traveller does not simply wish to minimise distance; they may simultaneously wish to avoid high-risk roads, reduce travel time during peak hours, or minimise toll expenditure. Classical shortest-path algorithms that operate on a single scalar edge weight are therefore insufficient.
+
+This project implements and compares nine AI search algorithms on the real OpenStreetMap road network of Dhaka city. Each road segment is annotated with a synthesised risk database that captures fifteen attributes including traffic density, road surface condition, weather, construction activity, street lighting, accident history, and police presence. A multi-criteria cost function aggregates these attributes into a single edge weight, and three optimisation profiles---\emph{fastest}, \emph{safest}, and \emph{cheapest}---re-weight the criteria to reflect different traveller priorities.
+
+The nine algorithms studied are: Breadth-First Search (BFS), Depth-First Search (DFS), Uniform Cost Search (UCS), Depth-Limited Search (DLS), Iterative Deepening Depth-Limited Search (IDLS), Iterative Deepening Search (IDS), Greedy Best-First Search, A*, and Weighted A*. They are evaluated on path cost, total distance, estimated travel time, average risk, and number of nodes expanded.
+
+\section{Problem Formulation}
+
+\subsection{Graph Representation}
+
+The Dhaka road network is modelled as a directed multigraph $G = (V, E)$ where:
+\begin{itemize}
+    \item $V$ is the set of road intersections (nodes), sourced from OpenStreetMap via OSMnx.
+    \item $E \subseteq V \times V$ is the set of directed road segments (edges). Parallel edges between the same pair of nodes are permitted (MultiDiGraph), representing multiple lanes or road types.
+    \item Each edge $e = (u, v, k)$ carries both OSM geometric attributes (length, highway type, width) and a synthesised risk attribute vector $\mathbf{a}_e \in \mathbb{R}^{15}$.
+\end{itemize}
+
+\subsection{Search Problem}
+
+Given a source node $s \in V$ and a destination node $t \in V$, find a path $\pi = (v_0, v_1, \ldots, v_n)$ with $v_0 = s$, $v_n = t$, and $(v_i, v_{i+1}) \in E$ for all $i$, that minimises the total path cost:
+\[
+    C(\pi) = \sum_{i=0}^{n-1} c(v_i, v_{i+1})
+\]
+where $c(u,v)$ is the cost of the best parallel edge between $u$ and $v$ under the active optimisation criteria.
+
+\section{Risk Function Formulation}
+
+\subsection{Motivation and Design Philosophy}
+
+Real-world road safety cannot be captured by a single attribute. The risk database synthesises fifteen attributes per edge to model the complex interplay of environmental, infrastructural, and social factors that determine how dangerous a road segment is at a given time. The attributes are either extracted from OSM data (highway type, width) or randomly generated from realistic distributions to simulate a real sensor/survey database.
+
+\subsection{Attribute Synthesis}
+
+For each edge $(u, v, k)$, the following attributes are generated:
+
+\begin{table}[h!]
+\centering
+\caption{Risk Database Attributes}
+\label{tab:risk_attrs}
+\begin{tabular}{lll}
+\toprule
+\textbf{Attribute} & \textbf{Type} & \textbf{Values / Range} \\
+\midrule
+\texttt{traffic\_factor}        & Categorical & low, medium, high \\
+\texttt{weather\_condition}     & Categorical & clear, rain, fog, storm \\
+\texttt{road\_surface\_condition} & Categorical & poor, fair, good \\
+\texttt{street\_lighting}       & Categorical & none, partial, full \\
+\texttt{peak\_usage\_time}      & Categorical & morning, afternoon, evening, night \\
+\texttt{vehicle\_types}         & Categorical & car, bus, truck, motorcycle, \ldots \\
+\texttt{gender\_predominant}    & Categorical & male, female, mixed \\
+\texttt{age\_group}             & Categorical & child, adult, elderly \\
+\texttt{construction\_work}     & Boolean     & True / False \\
+\texttt{tolled\_street}         & Boolean     & True / False \\
+\texttt{is\_holiday}            & Boolean     & True / False \\
+\texttt{num\_vehicles}          & Integer     & 1--50 \\
+\texttt{num\_accidents\_per\_year} & Integer  & 0--20 \\
+\texttt{num\_police\_boxes\_500m} & Integer   & 0--5 \\
+\texttt{street\_width}          & Float (m)   & derived from OSM highway type \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Street width is extracted from the OSM \texttt{width} tag when available; otherwise it is inferred from the highway classification (motorway $\to$ 12\,m, primary $\to$ 10\,m, residential $\to$ 6\,m, etc.). Road surface quality is biased by highway type: major roads are more likely to be \emph{fair} or \emph{good}.
+
+\subsection{Composite Risk Factor}
+
+The fifteen attributes are combined into a single normalised risk score $r_e \in [0, 1]$ via an additive model with domain-motivated weights:
+
+\begin{equation}
+r_e = \text{clip}\!\left(\sum_{i} \delta_i,\; 0,\; 1\right)
+\label{eq:risk}
+\end{equation}
+
+where the individual contributions $\delta_i$ are:
+
+\begin{align*}
+\delta_{\text{traffic}}    &= \begin{cases} 0.05 & \text{low} \\ 0.15 & \text{medium} \\ 0.30 & \text{high} \end{cases} &
+\delta_{\text{weather}}    &= \begin{cases} 0.00 & \text{clear} \\ 0.08 & \text{rain} \\ 0.12 & \text{fog} \\ 0.20 & \text{storm} \end{cases} \\[6pt]
+\delta_{\text{surface}}    &= \begin{cases} 0.15 & \text{poor} \\ 0.08 & \text{fair} \\ 0.02 & \text{good} \end{cases} &
+\delta_{\text{lighting}}   &= \begin{cases} 0.10 & \text{none} \\ 0.05 & \text{partial} \\ 0.00 & \text{full} \end{cases} \\[6pt]
+\delta_{\text{construction}} &= 0.15 \cdot \mathbf{1}[\text{construction}] &
+\delta_{\text{toll}}       &= 0.05 \cdot \mathbf{1}[\text{tolled}] \\[6pt]
+\delta_{\text{accident}}   &= 0.10 \cdot \frac{N_{\text{acc}}}{20} &
+\delta_{\text{density}}    &= 0.10 \cdot \frac{N_{\text{veh}}}{50} \\[6pt]
+\delta_{\text{width}}      &= \begin{cases} +0.10 & w < 5\,\text{m} \\ +0.05 & 5 \le w < 8\,\text{m} \\ 0 & \text{otherwise} \end{cases} &
+\delta_{\text{police}}     &= -0.02 \cdot \min(N_{\text{police}}, 5) \\[6pt]
+\delta_{\text{night+dark}} &= 0.10 \cdot \mathbf{1}[\text{night} \wedge \text{no lighting}] &
+\delta_{\text{holiday}}    &= 0.03 \cdot \mathbf{1}[\text{holiday}] \\[6pt]
+\delta_{\text{vehicle}}    &= \begin{cases} 0.05 & \text{truck/bus} \\ 0.04 & \text{motorcycle} \\ 0 & \text{otherwise} \end{cases} &
+\delta_{\text{age}}        &= 0.03 \cdot \mathbf{1}[\text{child} \vee \text{elderly}] \\[6pt]
+\delta_{\text{gender}}     &= 0.05 \cdot \mathbf{1}[\text{female} \wedge \text{night}]
+\end{align*}
+
+\subsection{Time-Dependent Risk Adjustment}
+
+At query time, the user specifies a day of week and hour of day. The system adjusts three attributes before recomputing $r_e$:
+\begin{itemize}
+    \item \texttt{peak\_usage\_time} is set to morning (07--10), afternoon (10--16), evening (16--20), or night (20--07).
+    \item \texttt{traffic\_factor} is escalated one level during morning and evening peak hours.
+    \item \texttt{is\_holiday} is set to \texttt{True} on Saturday and Sunday.
+\end{itemize}
+This makes the risk score dynamic: the same road segment has a different cost at 08:00 on a Monday versus 22:00 on a Saturday.
+
+
+\section{Cost Function Formulation}
+
+\subsection{Edge Cost Model}
+
+The cost of traversing edge $e = (u, v, k)$ is a weighted sum of nine normalised sub-costs, all in $[0, 1]$:
+
+\begin{equation}
+c(e) = w_d \cdot \hat{d}_e
+     + w_r \cdot r_e
+     + w_t \cdot \hat{\tau}_e
+     + w_s \cdot \hat{\sigma}_e
+     + w_w \cdot \hat{\omega}_e
+     + w_c \cdot \hat{\kappa}_e
+     + w_l \cdot \hat{\lambda}_e
+     + w_W \cdot \hat{W}_e
+     + w_T \cdot \hat{T}_e
+\label{eq:cost}
+\end{equation}
+
+where the sub-costs and their normalisation are:
+
+\begin{align}
+\hat{d}_e &= \min\!\left(\frac{d_e}{5000},\, 1\right) & &\text{(distance, normalised to 5\,km)} \label{eq:dist_norm}\\
+r_e       &\in [0,1]                                   & &\text{(composite risk factor, Eq.~\ref{eq:risk})} \\
+\hat{\tau}_e &= \begin{cases}0.1 & \text{low}\\ 0.5 & \text{medium}\\ 0.9 & \text{high}\end{cases} + 0.1\cdot\frac{N_{\text{veh}}}{50} & &\text{(traffic cost)} \\
+\hat{\sigma}_e &= \begin{cases}0.8 & \text{poor}\\ 0.4 & \text{fair}\\ 0.1 & \text{good}\end{cases} & &\text{(surface cost)} \\
+\hat{\omega}_e &= \begin{cases}0.0 & \text{clear}\\ 0.3 & \text{rain}\\ 0.5 & \text{fog}\\ 0.9 & \text{storm}\end{cases} & &\text{(weather cost)} \\
+\hat{\kappa}_e &= 0.5\cdot\mathbf{1}[\text{construction}] & &\text{(construction penalty)} \\
+\hat{\lambda}_e &= 0.3\cdot\mathbf{1}[\text{tolled}] & &\text{(toll penalty)} \\
+\hat{W}_e &= \max\!\left(0,\, 1 - \frac{w_e}{15}\right) & &\text{(width penalty; wider is safer)} \\
+\hat{T}_e &= \min\!\left(\frac{d_e / v_e}{300},\, 1\right) & &\text{(travel time, normalised to 5\,min)}
+\end{align}
+
+where $v_e$ is the estimated speed in m/s based on traffic level and surface condition.
+
+\textbf{Rationale for normalisation to 5\,km:} City road segments in Dhaka rarely exceed 5\,km. Normalising to this reference keeps $\hat{d}_e \in [0,1]$, placing it on the same scale as all other sub-costs. This is essential for the heuristic admissibility proof in Section~\ref{sec:heuristic}.
+
+\subsection{Optimisation Criteria and Weight Profiles}
+
+The weight vector $\mathbf{w} = (w_d, w_r, w_t, w_s, w_w, w_c, w_l, w_W, w_T)$ is re-configured for three optimisation profiles. All weights are normalised to sum to 1.
+
+\begin{table}[h!]
+\centering
+\caption{Weight profiles for each optimisation criterion}
+\label{tab:weights}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Sub-cost} & \textbf{Fastest} & \textbf{Safest} & \textbf{Cheapest} \\
+\midrule
+Distance ($w_d$)         & 0.10 & 0.15 & 0.35 \\
+Risk ($w_r$)             & 0.05 & 0.30 & 0.05 \\
+Traffic ($w_t$)          & 0.35 & 0.15 & 0.10 \\
+Road Surface ($w_s$)     & 0.05 & 0.15 & 0.05 \\
+Weather ($w_w$)          & 0.05 & 0.10 & 0.05 \\
+Construction ($w_c$)     & 0.05 & 0.10 & 0.05 \\
+Toll ($w_l$)             & 0.00 & 0.00 & 0.30 \\
+Street Width ($w_W$)     & 0.05 & 0.05 & 0.03 \\
+Travel Time ($w_T$)      & 0.30 & 0.00 & 0.02 \\
+\midrule
+\textbf{Sum}             & 1.00 & 1.00 & 1.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Rationale:}
+\begin{itemize}
+    \item \emph{Fastest}: Dominated by traffic congestion (0.35) and travel time (0.30). Distance and risk are de-emphasised because a slightly longer but uncongested road may be faster. Tolls are ignored.
+    \item \emph{Safest}: Dominated by the composite risk factor (0.30), road surface (0.15), and traffic (0.15). Travel time is set to zero---a safer route is preferred even if slower. Tolls are ignored.
+    \item \emph{Cheapest}: Dominated by distance (0.35, representing fuel cost) and toll avoidance (0.30). Risk and time are minimised because the primary concern is monetary cost.
+\end{itemize}
+
+\section{Heuristic Function Formulation}
+\label{sec:heuristic}
+
+\subsection{Role of the Heuristic}
+
+Informed search algorithms (A*, Weighted A*, Greedy) use a heuristic function $h(n)$ to estimate the cost of the cheapest path from node $n$ to the goal $t$. The evaluation function is:
+\[
+    f(n) = g(n) + h(n)
+\]
+where $g(n)$ is the actual accumulated cost from the start node $s$ to $n$, and $h(n)$ is the estimated remaining cost from $n$ to $t$.
+
+\subsection{Admissibility Requirement}
+
+\begin{definition}[Admissible Heuristic]
+A heuristic $h$ is \emph{admissible} if for every node $n$:
+\[
+    h(n) \leq h^*(n)
+\]
+where $h^*(n)$ is the true optimal cost from $n$ to the goal.
+\end{definition}
+
+An admissible heuristic guarantees that A* finds an optimal solution.
+
+\subsection{Heuristic Design}
+
+The heuristic is a lower bound on the true remaining cost $C^*(\pi_{n \to t})$ for any path from $n$ to $t$. Given the cost function in Eq.~\ref{eq:cost}, the true remaining cost satisfies:
+\[
+    C^*(\pi_{n \to t}) = \sum_{e \in \pi^*} c(e)
+    \geq \sum_{e \in \pi^*} \left[ w_d \cdot \hat{d}_e + w_r \cdot r_e + w_t \cdot \hat{\tau}_e \right]
+\]
+since all other sub-costs are non-negative.
+
+We construct lower bounds for each of the three dominant terms:
+
+\begin{align}
+\sum_{e \in \pi^*} w_d \cdot \hat{d}_e
+    &\geq w_d \cdot \min\!\left(\frac{\text{SL}(n,t)}{5000},\, 1\right)
+    \label{eq:h_dist} \\
+\sum_{e \in \pi^*} w_r \cdot r_e
+    &\geq w_r \cdot r_{\min}
+    \label{eq:h_risk} \\
+\sum_{e \in \pi^*} w_t \cdot \hat{\tau}_e
+    &\geq w_t \cdot 0.1
+    \label{eq:h_traffic}
+\end{align}
+
+where $\text{SL}(n,t)$ is the Euclidean (straight-line) distance from $n$ to $t$ in metres, and $r_{\min} = \min_{e \in E} r_e$ is the global minimum risk factor across all edges.
+
+The combined heuristic is:
+\begin{equation}
+\boxed{
+h(n) = w_d \cdot \min\!\left(\frac{\text{SL}(n,t)}{5000},\, 1\right)
+     + w_r \cdot r_{\min}
+     + w_t \cdot 0.1
+}
+\label{eq:heuristic}
+\end{equation}
+
+The straight-line distance is computed using the projected Euclidean formula:
+\[
+    \text{SL}(n,t) = \sqrt{(\Delta\lambda \cdot 111000 \cdot \cos\bar{\phi})^2 + (\Delta\phi \cdot 111000)^2}
+\]
+where $\Delta\lambda$, $\Delta\phi$ are the longitude and latitude differences, and $\bar{\phi}$ is the mean latitude.
+
+\subsection{Admissibility Proof}
+
+\begin{theorem}
+The heuristic $h(n)$ defined in Eq.~\ref{eq:heuristic} is admissible for the cost function in Eq.~\ref{eq:cost} under any weight profile.
+\end{theorem}
+
+\begin{proof}
+Let $\pi^* = (e_1, e_2, \ldots, e_N)$ be the optimal path from $n$ to $t$ with $N \geq 1$ edges.
+
+\textbf{Step 1 (Distance term).}
+By the triangle inequality, the straight-line distance is a lower bound on the sum of edge lengths:
+\[
+    \sum_{i=1}^{N} d_{e_i} \geq \text{SL}(n,t)
+\]
+Since $x \mapsto \min(x/5000, 1)$ is non-decreasing and $\min(a+b, 1) \geq \min(a,1)$ for $b \geq 0$:
+\[
+    \sum_{i=1}^{N} \min\!\left(\frac{d_{e_i}}{5000}, 1\right) \geq \min\!\left(\frac{\sum_i d_{e_i}}{5000}, 1\right) \geq \min\!\left(\frac{\text{SL}(n,t)}{5000}, 1\right)
+\]
+Therefore:
+\[
+    \sum_{i=1}^{N} w_d \cdot \hat{d}_{e_i} \geq w_d \cdot \min\!\left(\frac{\text{SL}(n,t)}{5000}, 1\right)
+\]
+
+\textbf{Step 2 (Risk term).}
+By definition of $r_{\min}$, every edge satisfies $r_e \geq r_{\min}$. Since $N \geq 1$:
+\[
+    \sum_{i=1}^{N} w_r \cdot r_{e_i} \geq N \cdot w_r \cdot r_{\min} \geq w_r \cdot r_{\min}
+\]
+
+\textbf{Step 3 (Traffic term).}
+The minimum traffic cost is 0.1 (low traffic level). Since $N \geq 1$:
+\[
+    \sum_{i=1}^{N} w_t \cdot \hat{\tau}_{e_i} \geq N \cdot w_t \cdot 0.1 \geq w_t \cdot 0.1
+\]
+
+\textbf{Step 4 (Combining).}
+Since all remaining sub-costs in Eq.~\ref{eq:cost} are non-negative:
+\begin{align*}
+C^*(\pi^*) &= \sum_{i=1}^{N} c(e_i) \\
+           &\geq \sum_{i=1}^{N} \left[w_d \hat{d}_{e_i} + w_r r_{e_i} + w_t \hat{\tau}_{e_i}\right] \\
+           &\geq w_d \cdot \min\!\left(\frac{\text{SL}(n,t)}{5000}, 1\right) + w_r \cdot r_{\min} + w_t \cdot 0.1 \\
+           &= h(n)
+\end{align*}
+
+Therefore $h(n) \leq h^*(n) = C^*(\pi^*)$ for all $n$, and $h$ is admissible. \qed
+\end{proof}
+
+\subsection{Admissibility Across Optimisation Criteria}
+
+The proof holds for any weight vector $\mathbf{w}$ with $w_d, w_r, w_t \geq 0$, which is satisfied by all three profiles in Table~\ref{tab:weights}. The heuristic automatically adapts because $w_d$, $w_r$, and $w_t$ are read from the live weight vector at search time.
+
+
+\section{Algorithm Implementations}
+
+\subsection{Overview}
+
+Nine search algorithms are implemented, spanning uninformed and informed categories. All operate on the directed multigraph $G$. For edges with multiple parallel connections, the algorithm always selects the minimum-cost edge between any two nodes.
+
+\subsection{Uninformed Search Algorithms}
+
+\subsubsection{Breadth-First Search (BFS)}
+
+\textbf{How it works.} BFS explores the graph level by level using a FIFO queue. All nodes at depth $d$ are expanded before any node at depth $d+1$. Nodes are marked visited when \emph{enqueued} (not when dequeued) to prevent duplicate entries.
+
+\textbf{Implementation detail.} The visited set is initialised with the start node. For each dequeued node, all unvisited successors are added to the queue and immediately marked visited.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes---finds a path if one exists.
+    \item \emph{Optimal}: Only with respect to edge count (number of hops), not weighted cost.
+    \item \emph{Time complexity}: $O(b^d)$ where $b$ is branching factor and $d$ is solution depth.
+    \item \emph{Space complexity}: $O(b^d)$---must store the entire frontier.
+\end{itemize}
+
+\textbf{When to use.} Use BFS when all edges have equal cost and you want the path with the fewest hops. Useful as a connectivity check or baseline.
+
+\textbf{When not to use.} Do not use BFS when edge costs vary (it ignores them) or when memory is constrained (frontier grows exponentially).
+
+\subsubsection{Depth-First Search (DFS)}
+
+\textbf{How it works.} DFS explores as deep as possible along each branch before backtracking, using a LIFO stack. Nodes are marked visited when pushed.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes (with visited set to prevent cycles).
+    \item \emph{Optimal}: No---may find a very long path.
+    \item \emph{Time complexity}: $O(b^m)$ where $m$ is the maximum depth.
+    \item \emph{Space complexity}: $O(bm)$---only the current path branch is stored.
+\end{itemize}
+
+\textbf{When to use.} Use DFS when memory is severely constrained and any valid path is acceptable. Useful for exploring graph structure.
+
+\textbf{When not to use.} Never use DFS when path quality matters. As seen in the results, DFS found a 614\,km path (603 edges) versus the optimal 47\,km (18 edges).
+
+\subsubsection{Uniform Cost Search (UCS)}
+
+\textbf{How it works.} UCS is Dijkstra's algorithm for single-pair shortest paths. It maintains a min-heap ordered by $g(n)$---the accumulated cost from the start. Stale heap entries are discarded using a lazy-deletion check: if the $g$ value at the time of pushing is greater than the current best $g(n)$, the entry is skipped.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes.
+    \item \emph{Optimal}: Yes---guaranteed to find the minimum-cost path for non-negative edge costs.
+    \item \emph{Time complexity}: $O((|V| + |E|) \log |V|)$.
+    \item \emph{Space complexity}: $O(|V|)$.
+\end{itemize}
+
+\textbf{When to use.} Use UCS when you need a guaranteed optimal path and have no heuristic information. It is the gold standard for correctness.
+
+\textbf{When not to use.} UCS expands nodes in all directions uniformly. On large graphs it is significantly slower than A* because it has no directional guidance.
+
+\subsubsection{Depth-Limited Search (DLS)}
+
+\textbf{How it works.} DLS is DFS with a hard depth limit $L$. Recursion terminates when depth reaches $L$ or the goal is found. A backtracking visited set (add on descent, remove on ascent) prevents cycles on the current path without blocking revisits across different branches.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Only if the solution exists within depth $L$.
+    \item \emph{Optimal}: No.
+    \item \emph{Time complexity}: $O(b^L)$.
+    \item \emph{Space complexity}: $O(bL)$.
+\end{itemize}
+
+\textbf{When to use.} Use DLS when you have domain knowledge about the maximum solution depth and want to bound the search.
+
+\textbf{When not to use.} If $L$ is set too small, DLS will miss the solution. If set too large, it degenerates to DFS. The high node expansion count (47\,129) in the results reflects the cost of exploring many dead-end branches.
+
+\subsubsection{Iterative Deepening Search (IDS)}
+
+\textbf{How it works.} IDS repeatedly runs DLS with increasing depth limits $L = 0, 1, 2, \ldots$ until the goal is found. Each iteration re-explores shallower nodes, but the total work is dominated by the last iteration.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes.
+    \item \emph{Optimal}: With respect to edge count (like BFS), not weighted cost.
+    \item \emph{Time complexity}: $O(b^d)$---same asymptotic as BFS.
+    \item \emph{Space complexity}: $O(bd)$---same as DFS.
+\end{itemize}
+
+\textbf{When to use.} IDS is the preferred uninformed algorithm when memory is limited but completeness is required. It combines the space efficiency of DFS with the completeness of BFS.
+
+\textbf{When not to use.} IDS ignores edge costs. The high node expansion count (82\,321) reflects repeated re-exploration across iterations.
+
+\subsubsection{Iterative Deepening Depth-Limited Search (IDLS)}
+
+\textbf{How it works.} IDLS is IDS with an explicit upper bound on the maximum depth, preventing unbounded search on very large graphs. The implementation uses a path-set (nodes on the current path) rather than a global visited set, allowing the same node to be visited via different paths at different depths.
+
+\textbf{Properties.} Same as IDS but bounded by the maximum depth parameter.
+
+\textbf{When to use.} Use IDLS over IDS when the graph is very large and you want to cap the search depth for performance reasons.
+
+\subsection{Informed Search Algorithms}
+
+\subsubsection{Greedy Best-First Search}
+
+\textbf{How it works.} Greedy expands the node with the lowest $h(n)$, ignoring $g(n)$ entirely. It uses a min-heap ordered by $h(n)$. Heuristic values are cached per node to avoid recomputing coordinate arithmetic on every push.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes (with visited set).
+    \item \emph{Optimal}: No---it ignores accumulated cost and can find suboptimal paths.
+    \item \emph{Time complexity}: $O(b^m)$ in the worst case, but often much faster in practice.
+    \item \emph{Space complexity}: $O(b^m)$.
+\end{itemize}
+
+\textbf{When to use.} Use Greedy when speed is the priority and suboptimal paths are acceptable. It is the fastest informed algorithm in terms of nodes expanded for easy instances.
+
+\textbf{When not to use.} Greedy can be badly misled by the heuristic. In the results, Greedy found a 155\,km path (127 edges) versus the optimal 47\,km---a 3.3$\times$ longer route.
+
+\subsubsection{A* Search}
+
+\textbf{How it works.} A* expands nodes in order of $f(n) = g(n) + h(n)$. It uses a min-heap with lazy deletion: heap entries store $(f, g_{\text{push}}, n)$, and an entry is discarded if $g_{\text{push}} > g_{\text{best}}(n)$ at pop time. Path reconstruction uses a \texttt{came\_from} dictionary.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes.
+    \item \emph{Optimal}: Yes, provided $h$ is admissible (proven in Section~\ref{sec:heuristic}).
+    \item \emph{Time complexity}: $O(b^{\epsilon d})$ where $\epsilon = 1 - h/h^*$ measures heuristic quality; approaches $O(d)$ for a perfect heuristic.
+    \item \emph{Space complexity}: $O(b^d)$---must store all generated nodes.
+\end{itemize}
+
+\textbf{When to use.} A* is the recommended algorithm when both optimality and efficiency matter. It is the best general-purpose informed search algorithm.
+
+\textbf{When not to use.} A* can be memory-intensive on very large graphs. If a slightly suboptimal solution is acceptable, Weighted A* with $\varepsilon > 1$ reduces node expansions significantly.
+
+\subsubsection{Weighted A* Search}
+
+\textbf{How it works.} Weighted A* uses $f(n) = g(n) + \varepsilon \cdot h(n)$ with $\varepsilon = 1.5$. Inflating the heuristic biases the search toward the goal more aggressively, reducing node expansions at the cost of optimality. The found solution is guaranteed to cost at most $\varepsilon \times C^*$ where $C^*$ is the optimal cost.
+
+\textbf{Properties.}
+\begin{itemize}
+    \item \emph{Complete}: Yes.
+    \item \emph{Optimal}: $\varepsilon$-suboptimal: found cost $\leq \varepsilon \cdot C^*$.
+    \item \emph{Time complexity}: Fewer node expansions than A* in practice.
+    \item \emph{Space complexity}: $O(b^d)$.
+\end{itemize}
+
+\textbf{When to use.} Use Weighted A* when near-optimal solutions are acceptable and speed is important. With $\varepsilon = 1.5$, the solution is within 50\% of optimal but typically found much faster.
+
+\textbf{When not to use.} Do not use Weighted A* when strict optimality is required (e.g., safety-critical routing).
+
+\section{Evaluation Plan}
+
+\subsection{Experimental Setup}
+
+Experiments were conducted on the Dhaka city road network loaded from OpenStreetMap via OSMnx. The graph contains 2,006 nodes and 4,757 edges. The risk database was generated once and persisted to disk; all algorithms use the same risk data for fair comparison.
+
+\textbf{Test case:}
+\begin{itemize}
+    \item Source node: 317599652
+    \item Destination node: 317599679
+    \item Day: Monday, Hour: 14:00 (afternoon)
+    \item Traveller: Male, Child, Car
+\end{itemize}
+
+All nine algorithms were run under each of the three optimisation criteria (fastest, safest, cheapest), yielding 27 algorithm-criteria combinations.
+
+\subsection{Evaluation Metrics}
+
+\begin{enumerate}
+    \item \textbf{Path cost} $C(\pi)$: total weighted cost (Eq.~\ref{eq:cost}), primary quality metric.
+    \item \textbf{Total distance} (metres): physical length of the found path.
+    \item \textbf{Estimated travel time} (minutes): computed from distance and traffic-adjusted speed.
+    \item \textbf{Average risk factor}: mean $r_e$ across path edges.
+    \item \textbf{Number of edges}: path length in hops.
+    \item \textbf{Nodes expanded}: primary efficiency metric---lower is better.
+\end{enumerate}
+
+\subsection{Ranking Methodology}
+
+Algorithms are ranked by path cost ascending. Ties in cost are broken by nodes expanded ascending, so that among algorithms finding the same optimal path, the most efficient one ranks highest.
+
+\subsection{Future Evaluation Directions}
+
+The following extensions are planned:
+\begin{itemize}
+    \item \textbf{Multiple source-destination pairs}: test on 20+ randomly sampled pairs to assess average-case performance.
+    \item \textbf{Runtime measurement}: wall-clock time per algorithm to complement nodes-expanded counts.
+    \item \textbf{Heuristic tightness analysis}: measure the ratio $h(n)/h^*(n)$ across nodes to quantify how close the heuristic is to the true cost.
+    \item \textbf{Sensitivity analysis}: vary the weight profiles continuously and observe how path choices change.
+    \item \textbf{Time-of-day comparison}: run the same source-destination pair at morning peak (08:00), afternoon (14:00), evening peak (18:00), and night (23:00) to demonstrate dynamic risk adjustment.
+\end{itemize}
+
+
+\section{Results}
+
+\subsection{Experimental Configuration}
+
+All results reported in this section use the following fixed configuration:
+\begin{itemize}
+    \item Source: node 317599652 \quad Destination: node 317599679
+    \item Day: Monday, Hour: 14:00 (afternoon, non-peak)
+    \item Traveller profile: Male, Child, Car
+\end{itemize}
+
+\subsection{Fastest Optimisation Criteria}
+
+Under the fastest profile, traffic congestion (35\%) and travel time (30\%) dominate the cost function. Distance and risk are de-emphasised.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{images/fastest_route_comparison.png}
+\caption{Route comparison table under Fastest optimisation criteria. BFS ranks first (364 nodes expanded) despite all cost-optimal algorithms finding the same path cost of 6.2775.}
+\label{fig:fastest_table}
+\end{figure}
+
+
+\subsection{Safest Optimisation Criteria}
+
+Under the safest profile, the composite risk factor (30\%), road surface (15\%), and traffic (15\%) dominate. Travel time weight is zero.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{images/safest_route_comparison.png}
+\caption{Route comparison table under Safest optimisation criteria. The optimal cost increases to 8.6805 compared to 6.2775 under Fastest, reflecting the higher weight on risk and surface quality.}
+\label{fig:safest_table}
+\end{figure}
+
+\subsection{Cheapest Optimisation Criteria}
+
+Under the cheapest profile, distance (35\%, representing fuel cost) and toll avoidance (30\%) dominate.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{images/cheapest_route_comaprison.png}
+\caption{Route comparison table under Cheapest optimisation criteria. Optimal cost is 7.9497. BFS again ranks first on the tiebreak (364 nodes expanded vs.\ 366 for Weighted A*).}
+\label{fig:cheapest_table}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{images/cheapest.png}
+\caption{Estimated route on Dhaka road network by BFS, Weighted A*, A*, UCS, DLS, IDLS, IDS.}
+\label{fig:cheapest_map}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{images/cheapest_greedy.png}
+\caption{Estimated route on Dhaka road network by Greedy-Best-First-Search}
+\label{fig:fastest_map}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{images/cheapest_dfs.png}
+\caption{Estimated route on Dhaka road network by DFS}
+\label{fig:fastest_map}
+\end{figure}
+
+\newpage
+\newpage
+\subsection{Comparative Analysis}
+
+\subsubsection{Algorithm Properties Summary}
+
+\begin{table}[h!]
+\centering
+\caption{Comparative properties of all nine search algorithms}
+\label{tab:algo_compare}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Algorithm} & \textbf{Type} & \textbf{Complete} & \textbf{Optimal} & \textbf{Time} & \textbf{Space} \\
+\midrule
+BFS   & Uninformed & Yes & Hops only & $O(b^d)$   & $O(b^d)$ \\
+DFS   & Uninformed & Yes & No        & $O(b^m)$   & $O(bm)$  \\
+UCS   & Uninformed & Yes & Yes       & $O((V{+}E)\log V)$ & $O(V)$ \\
+DLS   & Uninformed & If $d \leq L$ & No & $O(b^L)$ & $O(bL)$ \\
+IDS   & Uninformed & Yes & Hops only & $O(b^d)$   & $O(bd)$  \\
+IDLS  & Uninformed & If $d \leq L$ & No & $O(b^L)$ & $O(bL)$ \\
+Greedy & Informed  & Yes & No        & $O(b^m)$   & $O(b^m)$ \\
+A*    & Informed   & Yes & Yes$^*$   & $O(b^{\varepsilon d})$ & $O(b^d)$ \\
+Weighted A* & Informed & Yes & $\varepsilon$-suboptimal & $< $ A* & $O(b^d)$ \\
+\bottomrule
+\multicolumn{6}{l}{\small $^*$ Optimal when heuristic is admissible. $b$=branching factor, $d$=solution depth, $m$=max depth, $L$=depth limit.}
+\end{tabular}
+\end{table}
+
+\subsubsection{Empirical Results Summary}
+
+\begin{table}[h!]
+\centering
+\caption{Nodes expanded per algorithm across all three criteria (same source-destination pair)}
+\label{tab:nodes_expanded}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Algorithm} & \textbf{Fastest} & \textbf{Safest} & \textbf{Cheapest} \\
+\midrule
+BFS          &    364 &    364 &    364 \\
+Weighted A*  &    523 &    506 &    366 \\
+A*           &    549 &    511 &    372 \\
+UCS          &    608 &    527 &    390 \\
+DLS          & 47,129 & 47,129 & 47,129 \\
+IDLS         & 49,579 & 49,579 & 49,579 \\
+IDS          & 82,321 & 82,321 & 82,321 \\
+Greedy       &  1,474 &  1,474 &  1,474 \\
+DFS          & 101,630 & 101,630 & 101,630 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Key Observations}
+
+\begin{enumerate}
+    \item \textbf{Optimal algorithms agree on path quality.} BFS, Weighted A*, A*, and UCS all find the same path (cost 6.2775 / 8.6805 / 7.9497 depending on criteria, distance 46,961\,m, 18 edges). This confirms that the optimal path is unique for this source-destination pair.
+
+    \item \textbf{BFS ranks first despite being uninformed.} BFS expands only 364 nodes---fewer than A* (549) or UCS (608). This is because BFS finds the shortest-hop path first, and for this instance the shortest-hop path happens to also be the minimum-cost path. BFS benefits from early termination once the goal is dequeued.
+
+    \item \textbf{Weighted A* is more efficient than A*.} With $\varepsilon = 1.5$, Weighted A* expands 523 nodes versus 549 for A* under the fastest criteria---a 4.7\% reduction. The found path is identical (same cost), meaning the $\varepsilon$-suboptimality bound was not tight for this instance.
+
+    \item \textbf{Greedy is fast but suboptimal.} Greedy expands only 1,474 nodes but finds a 154,970\,m path (127 edges)---3.3$\times$ longer than optimal. It is misled by the heuristic into a locally promising but globally poor direction.
+
+    \item \textbf{DFS is catastrophically suboptimal.} DFS finds a 614,273\,m path (603 edges)---13$\times$ longer than optimal---and expands 101,630 nodes. It should never be used for quality-sensitive routing.
+
+    \item \textbf{DLS and IDLS have high node expansion.} Despite finding the optimal path, DLS (47,129) and IDLS (49,579) expand far more nodes than necessary due to repeated depth-limited exploration of dead-end branches.
+
+    \item \textbf{Criteria affect cost but not path structure here.} All optimal algorithms find the same physical path under all three criteria for this source-destination pair. The cost values differ (6.28 vs.\ 8.68 vs.\ 7.95) because the weight profiles change how the same edges are scored.
+\end{enumerate}
+
+\section{Conclusion}
+
+This project implemented and evaluated nine AI search algorithms on the Dhaka city road network with a multi-criteria cost function and a synthesised risk database. The key contributions are:
+
+\begin{enumerate}
+    \item A \textbf{15-attribute risk database} that models road safety as a composite of traffic, weather, infrastructure, and social factors, with dynamic time-of-day adjustment.
+    \item A \textbf{multi-criteria cost function} with three optimisation profiles (fastest, safest, cheapest) that re-weight nine normalised sub-costs.
+    \item A \textbf{formally admissible heuristic} (Eq.~\ref{eq:heuristic}) with a complete mathematical proof, enabling A* to find guaranteed optimal paths.
+    \item A \textbf{comparative evaluation} demonstrating that A* and Weighted A* achieve optimal path quality with significantly fewer node expansions than uninformed algorithms (except BFS on this instance), while Greedy and DFS sacrifice quality for speed.
+\end{enumerate}
+
+For practical deployment, A* with the admissible heuristic is recommended as the default algorithm. Weighted A* ($\varepsilon = 1.5$) is preferred when near-real-time response is required. UCS serves as a correctness baseline. BFS, DFS, DLS, IDS, and IDLS are retained for educational comparison but are not recommended for production routing.
+
+\end{document}
